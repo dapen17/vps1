@@ -67,6 +67,7 @@ async def load_existing_sessions():
 async def start(event):
     await event.reply(
         "Selamat datang di bot multi-login! 😊\n"
+        "Durasi bot setiap tanggal 23, payment h-1 berarti tanggal 22\n"
         "Masukkan nomor telepon Anda dengan mengetik:\n"
         "`/login <Nomor Telepon>` (contoh: /login +628123456789)\n\n"
         "BACA! : 2 Verifikasi harus mati / Matikan password pada account yang mau dijadiin bot"
@@ -78,7 +79,7 @@ async def login(event):
 
     # Cek apakah jumlah sesi sudah mencapai batas maksimal
     if total_sessions >= MAX_SESSIONS:
-        await event.reply("⚠️ Bot sudah terhubung dengan maksimal 4 akun. Logout salah satu untuk menambahkan akun baru.")
+        await event.reply("⚠️ Bot sudah terhubung dengan maksimal 8 akun. Logout salah satu untuk menambahkan akun baru.")
         return
 
     sender = await event.get_sender()
