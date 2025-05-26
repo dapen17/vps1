@@ -3,6 +3,7 @@ import json
 import asyncio
 from telethon import TelegramClient, events, errors
 from features import configure_event_handlers  # Import fitur tambahan
+import time
 
 # Load konfigurasi dari file
 CONFIG_FILE = 'config.json'
@@ -341,17 +342,101 @@ async def run_bot():
     # Memuat sesi yang ada saat bot pertama kali dijalankan
     await load_existing_sessions()
     
+    max_retries = 5  # Jumlah maksimal percobaan reconnection
+    retry_delay = 10  # Delay antara percobaan reconnection (dalam detik)
+    retry_count = 0
+    
     while True:
         try:
             print("Bot berjalan!")
-            await bot_client.start(bot_token=bot_token)
+            if not bot_client.is_connected():
+                await bot_client.connect()
+            
+            if not await bot_client.is_user_authorized():
+                await bot_client.start(bot_token=bot_token)
+            
             await bot_client.run_until_disconnected()
+            retry_count = 0  # Reset retry counter after successful run
+            
+        except errors.ConnectionError as e:
+            retry_count += 1
+            print(f"Koneksi terputus ({retry_count}/{max_retries}): {e}")
+            if retry_count >= max_retries:
+                print("Mencoba reconnect semua sesi...")
+                await reconnect_all_sessions()
+                retry_count = 0
+            await asyncio.sleep(retry_delay)
+            
         except (errors.FloodWaitError, errors.RPCError) as e:
             print(f"Telegram error: {e}. Tunggu sebelum mencoba lagi.")
-            await asyncio.sleep(5)
+            await asyncio.sleep(retry_delay)
+            
         except Exception as e:
-            print(f"Error tidak terduga: {e}. Restart dalam 10 detik...")
-            await asyncio.sleep(10)
+            print(f"Error tidak terduga: {e}. Restart dalam {retry_delay} detik...")
+            await asyncio.sleep(retry_delay)
+            
+        finally:
+            # Pastikan client terputus dengan benar sebelum mencoba reconnect
+            try:
+                if bot_client.is_connected():
+                    await bot_client.disconnect()
+            except:
+                pass
+
+async def reconnect_all_sessions():
+    """Fungsi untuk reconnect semua sesi user"""
+    global total_sessions
+    
+    print("Memulai proses reconnect semua sesi...")
+    disconnected_sessions = 0
+    
+    for user_id in list(user_sessions.keys()):
+        for session_data in list(user_sessions[user_id]):  # Gunakan list() untuk membuat copy
+            client = session_data['client']
+            phone = session_data['phone']
+            session_file = client.session.filename
+            
+            try:
+                if client.is_connected():
+                    await client.disconnect()
+                
+                await client.connect()
+                
+                if not await client.is_user_authorized():
+                    print(f"Sesi {phone} tidak valid, menghapus...")
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+                    if os.path.exists(session_file):
+                        os.remove(session_file)
+                    user_sessions[user_id].remove(session_data)
+                    total_sessions -= 1
+                    disconnected_sessions += 1
+                else:
+                    print(f"Berhasil reconnect sesi {phone}")
+                    
+            except Exception as e:
+                print(f"Gagal reconnect sesi {phone}: {e}")
+                try:
+                    await client.disconnect()
+                except:
+                    pass
+                if os.path.exists(session_file):
+                    os.remove(session_file)
+                user_sessions[user_id].remove(session_data)
+                total_sessions -= 1
+                disconnected_sessions += 1
+    
+    print(f"Proses reconnect selesai. {disconnected_sessions} sesi terputus.")
 
 if __name__ == '__main__':
-    asyncio.run(run_bot())
+    while True:
+        try:
+            asyncio.run(run_bot())
+        except KeyboardInterrupt:
+            print("\nBot dihentikan oleh user")
+            break
+        except Exception as e:
+            print(f"Error fatal: {e}. Restarting bot dalam 10 detik...")
+            time.sleep(10)
