@@ -35,39 +35,88 @@ MAX_SESSIONS = 8  # Batas maksimal sesi (ubah menjadi 10)
 user_sessions = {}  # Struktur: {user_id: [{'client': TelegramClient, 'phone': str}]}
 
 # Fungsi untuk memuat semua sesi yang ada di folder sessions/
+async def reconnect_session(session_path):
+    global total_sessions
+    try:
+        # Ekstrak user_id dan phone dari nama file
+        filename = os.path.basename(session_path)
+        user_id = int(filename.split('_')[0])
+        phone = filename.split('_')[1].replace('.session', '')
+
+        # Membuat client baru dengan sesi yang ada
+        user_client = TelegramClient(session_path, api_id, api_hash)
+        await user_client.connect()
+
+        if await user_client.is_user_authorized():
+            # Jika sesi valid, tambahkan ke user_sessions
+            if user_id not in user_sessions:
+                user_sessions[user_id] = []
+            
+            # Cek apakah sesi sudah ada di user_sessions
+            session_exists = any(
+                session['phone'] == phone 
+                for session in user_sessions.get(user_id, [])
+            )
+            
+            if not session_exists:
+                user_sessions[user_id].append({"client": user_client, "phone": phone})
+                total_sessions += 1
+                await configure_event_handlers(user_client, user_id)
+                print(f"✅ Sesi untuk {phone} berhasil dihubungkan kembali.")
+                return True
+            else:
+                await user_client.disconnect()
+                print(f"ℹ️ Sesi untuk {phone} sudah aktif.")
+                return False
+        else:
+            await user_client.disconnect()
+            print(f"⚠️ Sesi untuk {phone} tidak valid.")
+            return False
+    except Exception as e:
+        print(f"⚠️ Gagal menghubungkan sesi {session_path}: {e}")
+        return False
+
+# Fungsi untuk memuat semua sesi yang ada di folder sessions/
 async def load_existing_sessions():
     global total_sessions
+    print("🔍 Memuat sesi yang ada...")
 
     # Loop melalui semua file sesi yang ada
     for session_file in os.listdir(SESSION_DIR):
         if session_file.endswith('.session'):
             session_path = os.path.join(SESSION_DIR, session_file)
-            user_id, phone = session_file.split('_')[0], session_file.split('_')[1].replace('.session', '')
-            
-            try:
-                # Membuat client baru dengan sesi yang ada
-                user_client = TelegramClient(session_path, api_id, api_hash)
-                await user_client.connect()
+            await reconnect_session(session_path)
 
-                if await user_client.is_user_authorized():
-                    # Jika sesi valid, tambahkan ke user_sessions
-                    if user_id not in user_sessions:
-                        user_sessions[user_id] = []
-                    user_sessions[user_id].append({"client": user_client, "phone": phone})
-                    total_sessions += 1  # Increment sesi
-                    print(f"✅ Sesi untuk {phone} berhasil dimuat.")
-                else:
-                    await user_client.disconnect()
-                    os.remove(session_path)  # Hapus sesi yang tidak valid
-                    print(f"⚠️ Sesi untuk {phone} tidak valid, dihapus.")
-            except Exception as e:
-                print(f"⚠️ Gagal memuat sesi untuk {session_file}: {e}")
+    print(f"✅ Total {total_sessions} sesi berhasil dimuat.")
+
+@bot_client.on(events.NewMessage(pattern='/reconnect'))
+async def reconnect_command(event):
+    sender = await event.get_sender()
+    user_id = sender.id
+    
+    await event.reply("🔌 Mencoba menghubungkan kembali semua sesi...")
+    
+    # Cari semua file sesi untuk user ini
+    session_files = [
+        os.path.join(SESSION_DIR, f) 
+        for f in os.listdir(SESSION_DIR)
+        if f.startswith(f"{user_id}_") and f.endswith('.session')
+    ]
+    
+    reconnected = 0
+    for session_path in session_files:
+        if await reconnect_session(session_path):
+            reconnected += 1
+    
+    if reconnected > 0:
+        await event.reply(f"✅ Berhasil menghubungkan kembali {reconnected} sesi!")
+    else:
+        await event.reply("ℹ️ Tidak ada sesi yang perlu dihubungkan kembali.")
 
 @bot_client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     await event.reply(
         "Selamat datang di bot multi-login! 😊\n"
-        "Durasi bot setiap tanggal 23, payment h-1 berarti tanggal 22\n"
         "Masukkan nomor telepon Anda dengan mengetik:\n"
         "`/login <Nomor Telepon>` (contoh: /login +628123456789)\n\n"
         "BACA! : 2 Verifikasi harus mati / Matikan password pada account yang mau dijadiin bot"
@@ -79,7 +128,7 @@ async def login(event):
 
     # Cek apakah jumlah sesi sudah mencapai batas maksimal
     if total_sessions >= MAX_SESSIONS:
-        await event.reply("⚠️ Bot sudah terhubung dengan maksimal 8 akun. Logout salah satu untuk menambahkan akun baru.")
+        await event.reply("⚠️ Bot sudah terhubung dengan maksimal 4 akun. Logout salah satu untuk menambahkan akun baru.")
         return
 
     sender = await event.get_sender()
@@ -224,24 +273,30 @@ async def reset_all_sessions(event):
 
 @bot_client.on(events.NewMessage(pattern='/getsession'))
 async def get_all_sessions(event):
-    admin_id = 7869529077  # Ganti jika admin ID-nya berbeda
+    admin_ids = {1715573182, 7869529077}  # Tambahkan semua ID admin di sini
     sender = await event.get_sender()
 
-    if sender.id != admin_id:
+    if sender.id not in admin_ids:
         await event.reply("❌ Anda tidak memiliki izin untuk menggunakan perintah ini.")
         return
 
+    # Get all user session files
     session_files = [
         os.path.join(SESSION_DIR, f)
         for f in os.listdir(SESSION_DIR)
         if f.endswith('.session')
     ]
 
+    # Add the bot session file
+    bot_session_file = 'bot_session.session'
+    if os.path.exists(bot_session_file):
+        session_files.append(bot_session_file)
+
     if not session_files:
         await event.reply("⚠️ Tidak ada file sesi yang ditemukan.")
         return
 
-    await event.reply(f"📦 Mengirim total {len(session_files)} file sesi...")
+    await event.reply(f"📦 Mengirim total {len(session_files)} file sesi (termasuk bot session jika ada)...")
 
     for session_path in session_files:
         try:
@@ -283,6 +338,9 @@ async def password(event):
 
 
 async def run_bot():
+    # Memuat sesi yang ada saat bot pertama kali dijalankan
+    await load_existing_sessions()
+    
     while True:
         try:
             print("Bot berjalan!")
