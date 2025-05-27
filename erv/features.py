@@ -277,17 +277,32 @@ async def configure_event_handlers(client, user_id):
 
     @client.on(events.NewMessage(pattern=r'^erv stopall$'))
     async def stop_all_handler(event):
-        for group_key in active_bc_interval[user_id].keys():
-            active_bc_interval[user_id][group_key] = False
-        auto_replies[user_id] = ""
+        # Stop semua broadcast grup
+        for bc_type in list(active_bc_interval[user_id].keys()):
+            active_bc_interval[user_id][bc_type] = False
+        
+        # Hapus auto-reply
+        if user_id in auto_replies:
+            auto_replies[user_id] = ""
+        
+        # Kosongkan blacklist
         blacklist.clear()
-        for group_id in active_groups.keys():
-            active_groups[group_id][user_id] = False
-        for group_key in active_bc_interval[user_id].keys():
-            if active_bc_interval[user_id][group_key]:
-                active_bc_interval[user_id][group_key] = False
+        
+        # Stop semua spam grup
+        for group_id in list(active_groups.keys()):
+            if user_id in active_groups[group_id]:
+                active_groups[group_id][user_id] = False
+        
+        # Hapus data broadcast
+        if user_id in broadcast_data:
+            broadcast_data[user_id].clear()
+        
         save_state()
-        await event.reply("✅ Semua pengaturan telah direset dan semua broadcast dihentikan.")
+        await event.reply("✅ SEMUA FITUR TELAH DIHENTIKAN DAN DIHAPUS:\n"
+                         "- Semua broadcast dihentikan\n"
+                         "- Auto-reply dihapus\n"
+                         "- Blacklist dikosongkan\n"
+                         "- Semua spam grup dihentikan")
 
 # Load state saat module diimport
 load_state()
