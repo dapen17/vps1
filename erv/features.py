@@ -258,53 +258,53 @@ async def configure_event_handlers(client, user_id):
         await event.reply("✅ Auto-reply berhasil diatur.")
 
     @client.on(events.NewMessage(incoming=True))
-async def auto_reply_handler(event):
-    if event.is_private:
-        me = await client.get_me()
-        uid = me.id
-        # Periksa apakah auto-reply aktif dan pesan tidak berasal dari bot sendiri
-        if uid in auto_replies and auto_replies[uid] and not event.out:
-            try:
-                sender = await event.get_sender()
-                peer = InputPeerUser(sender.id, sender.access_hash)
-                await client.send_message(peer, auto_replies[uid])
-                await client.send_read_acknowledge(peer)
-            except errors.rpcerrorlist.UsernameNotOccupiedError:
-                pass
-            except errors.rpcerrorlist.FloodWaitError:
-                pass
-            except Exception:
-                pass
+    async def auto_reply_handler(event):
+        if event.is_private:
+            me = await client.get_me()
+            uid = me.id
+            # Periksa apakah auto-reply aktif dan pesan tidak berasal dari bot sendiri
+            if uid in auto_replies and auto_replies[uid] and not event.out:
+                try:
+                    sender = await event.get_sender()
+                    peer = InputPeerUser(sender.id, sender.access_hash)
+                    await client.send_message(peer, auto_replies[uid])
+                    await client.send_read_acknowledge(peer)
+                except errors.rpcerrorlist.UsernameNotOccupiedError:
+                    pass
+                except errors.rpcerrorlist.FloodWaitError:
+                    pass
+                except Exception:
+                    pass
 
-@client.on(events.NewMessage(pattern=r'^erv stopall$'))
-async def stop_all_handler(event):
-    me = await client.get_me()
-    user_id = me.id
-    
-    # Stop semua broadcast grup
-    active_bc_interval[user_id].clear()
-    
-    # Hapus auto-reply
-    auto_replies[user_id] = ""
-    
-    # Kosongkan blacklist
-    blacklist.clear()
-    
-    # Stop semua spam grup
-    for group_id in list(active_groups.keys()):
-        if user_id in active_groups[group_id]:
-            active_groups[group_id][user_id] = False
-    
-    # Hapus data broadcast
-    if user_id in broadcast_data:
-        broadcast_data[user_id].clear()
-    
-    save_state()
-    await event.reply("✅ SEMUA FITUR TELAH DIHENTIKAN DAN DIHAPUS:\n"
-                     "- Semua broadcast dihentikan\n"
-                     "- Auto-reply dinonaktifkan\n"
-                     "- Blacklist dikosongkan\n"
-                     "- Semua spam grup dihentikan")
+    @client.on(events.NewMessage(pattern=r'^erv stopall$'))
+    async def stop_all_handler(event):
+        me = await client.get_me()
+        user_id = me.id
+        
+        # Stop semua broadcast grup
+        active_bc_interval[user_id].clear()
+        
+        # Hapus auto-reply
+        auto_replies[user_id] = ""
+        
+        # Kosongkan blacklist
+        blacklist.clear()
+        
+        # Stop semua spam grup
+        for group_id in list(active_groups.keys()):
+            if user_id in active_groups[group_id]:
+                active_groups[group_id][user_id] = False
+        
+        # Hapus data broadcast
+        if user_id in broadcast_data:
+            broadcast_data[user_id].clear()
+        
+        save_state()
+        await event.reply("✅ SEMUA FITUR TELAH DIHENTIKAN DAN DIHAPUS:\n"
+                        "- Semua broadcast dihentikan\n"
+                        "- Auto-reply dinonaktifkan\n"
+                        "- Blacklist dikosongkan\n"
+                        "- Semua spam grup dihentikan")
 
 # Load state saat module diimport
 load_state()
