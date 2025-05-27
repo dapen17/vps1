@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 from telethon import TelegramClient, events, errors
-from features import configure_event_handlers  # Import fitur tambahan
+from features import configure_event_handlers, save_state, load_state  # Import fitur tambahan
 import time
 
 # Load konfigurasi dari file
@@ -153,6 +153,7 @@ async def login(event):
                 user_sessions[user_id].append({"client": user_client, "phone": phone})
                 await event.reply(f"✅ Anda sudah login sebelumnya! Langsung terhubung sebagai {phone}.")
                 await configure_event_handlers(user_client, user_id)
+                save_state()  # Simpan state setelah login berhasil
                 return
             else:
                 await user_client.disconnect()
@@ -202,6 +203,7 @@ async def verify(event):
         await user_client.sign_in(phone, code)
         await event.reply(f"✅ Verifikasi berhasil untuk nomor {phone}! Anda sekarang dapat menggunakan fitur.")
         await configure_event_handlers(user_client, user_id)
+        save_state()  # Simpan state setelah verifikasi berhasil
     except errors.SessionPasswordNeededError:
         await event.reply("⚠️ Kode OTP benar, tapi akun ini mengaktifkan verifikasi dua langkah (password).\n"
                           "Silakan masukkan password Anda dengan perintah:\n"
@@ -221,8 +223,15 @@ async def logout(event):
     session_file = os.path.join(SESSION_DIR, f'{user_id}_{phone.replace("+", "")}.session')
 
     if os.path.exists(session_file):
+        # Cari dan hapus client dari user_sessions
+        if user_id in user_sessions:
+            user_sessions[user_id] = [s for s in user_sessions[user_id] if s["phone"] != phone.replace("+", "")]
+            if not user_sessions[user_id]:
+                del user_sessions[user_id]
+        
         os.remove(session_file)
         total_sessions -= 1  # Kurangi jumlah total sesi
+        save_state()  # Simpan state setelah logout
         await event.reply(f"✅ Berhasil logout untuk nomor {phone}.")
     else:
         await event.reply(f"⚠️ Tidak ada sesi aktif untuk nomor {phone}.")
@@ -249,7 +258,6 @@ async def list_accounts(event):
     else:
         await event.reply(f"⚠️ Tidak ada akun yang login untuk Anda.\n"
                           f"Total akun yang login: {total_sessions}/{MAX_SESSIONS}")
-
 
 
 @bot_client.on(events.NewMessage(pattern='/resetall'))
