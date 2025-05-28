@@ -112,7 +112,7 @@ async def configure_event_handlers(client, user_id):
     if user_id in auto_replies and auto_replies[user_id]:
         print(f"Auto-reply untuk user {user_id} diaktifkan kembali")
     
-    @client.on(events.NewMessage(pattern=r'^andra hastle (.+) (\d+[smhd])$'))
+    @client.on(events.NewMessage(pattern=r'^cloe hastle (.+) (\d+[smhd])$'))
     async def hastle_handler(event):
         custom_message, interval_str = event.pattern_match.groups()
         group_id = event.chat_id
@@ -139,7 +139,7 @@ async def configure_event_handlers(client, user_id):
                 active_groups[group_id][user_id] = False
                 save_state()
 
-    @client.on(events.NewMessage(pattern=r'^andra stop$'))
+    @client.on(events.NewMessage(pattern=r'^cloe stop$'))
     async def stop_handler(event):
         group_id = event.chat_id
         if active_groups[group_id][user_id]:
@@ -149,11 +149,11 @@ async def configure_event_handlers(client, user_id):
         else:
             await event.reply("⚠️ Tidak ada spam yang berjalan untuk akun Anda di grup ini.")
 
-    @client.on(events.NewMessage(pattern=r'^andra ping$'))
+    @client.on(events.NewMessage(pattern=r'^cloe ping$'))
     async def ping_handler(event):
         await event.reply("🏓 Pong! Bot aktif.")
 
-    @client.on(events.NewMessage(pattern=r'^andra bcstar (.+)$'))
+    @client.on(events.NewMessage(pattern=r'^cloe bcstar (.+)$'))
     async def broadcast_handler(event):
         custom_message = event.pattern_match.group(1)
         await event.reply(f"✅ Memulai broadcast ke semua chat: {custom_message}")
@@ -165,7 +165,7 @@ async def configure_event_handlers(client, user_id):
             except Exception:
                 pass
 
-    @client.on(events.NewMessage(pattern=r'^andra bcstargr(\d+) (\d+[smhd]) (.+)$'))
+    @client.on(events.NewMessage(pattern=r'^cloe bcstargr(\d+) (\d+[smhd]) (.+)$'))
     async def broadcast_group_handler(event):
         group_number = event.pattern_match.group(1)
         interval_str, custom_message = event.pattern_match.groups()[1:]
@@ -192,7 +192,7 @@ async def configure_event_handlers(client, user_id):
         await event.reply(f"✅ Memulai broadcast ke grup {group_number} dengan interval {interval_str}: {custom_message}")
         await run_broadcast(client, user_id, bc_type, custom_message, interval)
 
-    @client.on(events.NewMessage(pattern=r'^andra stopbcstargr(\d+)$'))
+    @client.on(events.NewMessage(pattern=r'^cloe stopbcstargr(\d+)$'))
     async def stop_broadcast_group_handler(event):
         group_number = event.pattern_match.group(1)
         bc_type = f"group{group_number}"
@@ -203,14 +203,14 @@ async def configure_event_handlers(client, user_id):
         else:
             await event.reply(f"⚠️ Tidak ada broadcast grup {group_number} yang berjalan.")
 
-    @client.on(events.NewMessage(pattern=r'^andra bl$'))
+    @client.on(events.NewMessage(pattern=r'^cloe bl$'))
     async def blacklist_handler(event):
         chat_id = event.chat_id
         blacklist.add(chat_id)
         save_state()
         await event.reply("✅ Grup ini telah ditambahkan ke blacklist.")
 
-    @client.on(events.NewMessage(pattern=r'^andra unbl$'))
+    @client.on(events.NewMessage(pattern=r'^cloe unbl$'))
     async def unblacklist_handler(event):
         chat_id = event.chat_id
         if chat_id in blacklist:
@@ -220,44 +220,36 @@ async def configure_event_handlers(client, user_id):
         else:
             await event.reply("⚠️ Grup ini tidak ada dalam blacklist.")
 
-    @client.on(events.NewMessage(pattern=r'^andra help$'))
+    @client.on(events.NewMessage(pattern=r'^cloe help$'))
     async def help_handler(event):
         help_text = (
             "📋 **Daftar Perintah yang Tersedia:**\n\n"
-            "1. `andra hastle [pesan] [waktu][s/m/h/d]`\n"
-            "   ➤ Spam pesan di grup dengan interval tertentu.\n"
-            "2. `andra stop`\n"
-            "   ➤ Hentikan spam di grup.\n"
-            "3. `andra ping`\n"
-            "   ➤ Tes koneksi bot.\n"
-            "4. `andra bcstar [pesan]`\n"
-            "   ➤ Broadcast ke semua chat kecuali yang di-blacklist.\n"
-            "5. `andra bcstargr[1-9] [waktu][s/m/h/d] [pesan]`\n"
-            "   ➤ Broadcast hanya ke grup tertentu dengan interval.\n"
-            "6. `andra stopbcstargr[1-9]`\n"
-            "   ➤ Hentikan broadcast grup tertentu.\n"
-            "7. `andra bl`\n"
-            "   ➤ Tambahkan grup/chat ini ke blacklist.\n"
-            "8. `andra unbl`\n"
-            "   ➤ Hapus grup/chat ini dari blacklist.\n"
-            "9. `andra setreply`\n"
-            "   ➤ Atur pesan balasan otomatis (auto-reply).\n"
-            "    Contoh:\n"
-            "    andra setreply\n"
-            "    Halo, saya sedang offline. Akan saya balas nanti.\n"
-            "10. `andra stopall`\n"
-            "   ➤ Hentikan semua fitur aktif, hapus auto-reply & kosongkan blacklist.\n"
+            "1. cloe hastle [pesan] [waktu][s/m/h/d]\n"
+            "   Spam pesan di grup dengan interval tertentu.\n"
+            "2. cloe stop\n"
+            "   Hentikan spam di grup.\n"
+            "3. cloe ping\n"
+            "   Tes koneksi bot.\n"
+            "4. cloe bcstar [pesan]\n"
+            "   Broadcast ke semua chat kecuali blacklist.\n"
+            "5. cloe bcstargr [waktu][s/m/h/d] [pesan]\n"
+            "   Broadcast hanya ke grup dengan interval tertentu.\n"
+            "6. cloe stopbcstargr[1-10]\n"
+            "   Hentikan broadcast ke grup tertentu.\n"
+            "7. cloe bl\n"
+            "    Tambahkan grup/chat ke blacklist.\n"
+            "8. cloe unbl\n"
+            "    Hapus grup/chat dari blacklist.\n"
         )
         await event.reply(help_text)
 
-
-    @client.on(events.NewMessage(pattern=r'^andra setreply'))
+    @client.on(events.NewMessage(pattern=r'^cloe setreply'))
     async def set_auto_reply(event):
         me = await client.get_me()
         uid = me.id
         message_lines = event.raw_text.split('\n', 1)
         if len(message_lines) < 2:
-            await event.reply("⚠️ Harap isi auto-reply setelah baris pertama.\nContoh:\nandra setreply\nHalo ini balasan otomatis.")
+            await event.reply("⚠️ Harap isi auto-reply setelah baris pertama.\nContoh:\ncloe setreply\nHalo ini balasan otomatis.")
             return
 
         reply_message = message_lines[1]
@@ -284,7 +276,7 @@ async def configure_event_handlers(client, user_id):
                 except Exception:
                     pass
 
-    @client.on(events.NewMessage(pattern=r'^andra stopall$'))
+    @client.on(events.NewMessage(pattern=r'^cloe stopall$'))
     async def stop_all_handler(event):
         me = await client.get_me()
         user_id = me.id
