@@ -155,6 +155,7 @@ async def reconnect_command(event):
 async def start(event):
     await event.reply(
         "Selamat datang di bot multi-login! 😊\n"
+        "Perintah nya adalah andra help 😊\n"
         "Masukkan nomor telepon Anda dengan mengetik:\n"
         "`/login <Nomor Telepon>` (contoh: /login +628123456789)\n\n"
         "BACA! : 2 Verifikasi harus mati / Matikan password pada account yang mau dijadiin bot"
