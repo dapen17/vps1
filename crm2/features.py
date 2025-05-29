@@ -165,17 +165,14 @@ async def configure_event_handlers(client, user_id):
             except Exception:
                 pass
 
-    @client.on(events.NewMessage(pattern=r'^crm bcstargr(\d+) (\d+[smhd])(?:\n|$|\s)'))
+    @client.on(events.NewMessage(pattern=r'^crm bcstargr(\d+) (\d+[smhd])(?:\n|$|\s)([\s\S]*)$'))
     async def broadcast_group_handler(event):
         try:
-            # Dapatkan seluruh teks pesan
-            full_text = event.raw_text
+            group_number = event.pattern_match.group(1)
+            interval_str = event.pattern_match.group(2)
+            custom_message = event.pattern_match.group(3).strip()
             
-            # Pisahkan baris pertama dan sisanya
-            lines = full_text.split('\n', 1)  # Split hanya pada baris pertama
-            
-            # Jika tidak ada baris kedua (pesan kosong)
-            if len(lines) < 2 or not lines[1].strip():
+            if not custom_message:
                 await event.reply(
                     "⚠️ Format salah! Contoh penggunaan:\n\n"
                     "crm bcstargr1 60s\n"
@@ -185,21 +182,13 @@ async def configure_event_handlers(client, user_id):
                 )
                 return
 
-            # Ekstrak parameter dari baris pertama
-            first_line = lines[0].split()
-            group_number = first_line[1][-1]  # ambil angka terakhir dari bcstargrX
-            interval_str = first_line[2]  # ambil interval
-            
-            # Ambil semua baris setelah baris pertama sebagai pesan
-            custom_message = lines[1].strip()
-            
             interval = parse_interval(interval_str)
             if not interval:
                 await event.reply("⚠️ Format waktu salah! Gunakan format 10s, 1m, 2h, dll.")
                 return
 
             bc_type = f"group{group_number}"
-            user_id = event.sender_id  # Gunakan sender_id sebagai user_id
+            user_id = event.sender_id
             
             if active_bc_interval[user_id].get(bc_type, False):
                 await event.reply(f"⚠️ Broadcast ke grup {group_number} sudah berjalan.")
@@ -222,7 +211,8 @@ async def configure_event_handlers(client, user_id):
                 f"Preview pesan:\n{preview}"
             )
             
-            await run_broadcast(client, user_id, bc_type, custom_message, interval)
+            # Jalankan broadcast dalam background
+            asyncio.create_task(run_broadcast(client, user_id, bc_type, custom_message, interval))
             
         except Exception as e:
             await event.reply(f"❌ Error: {str(e)}")
@@ -230,14 +220,20 @@ async def configure_event_handlers(client, user_id):
 
     @client.on(events.NewMessage(pattern=r'^crm stopbcstargr(\d+)$'))
     async def stop_broadcast_group_handler(event):
-        group_number = event.pattern_match.group(1)
-        bc_type = f"group{group_number}"
-        if active_bc_interval[user_id][bc_type]:
-            active_bc_interval[user_id][bc_type] = False
-            save_state()
-            await event.reply(f"✅ Broadcast ke grup {group_number} dihentikan.")
-        else:
-            await event.reply(f"⚠️ Tidak ada broadcast grup {group_number} yang berjalan.")
+        try:
+            group_number = event.pattern_match.group(1)
+            bc_type = f"group{group_number}"
+            user_id = event.sender_id
+            
+            if active_bc_interval[user_id].get(bc_type, False):
+                active_bc_interval[user_id][bc_type] = False
+                save_state()
+                await event.reply(f"✅ Broadcast ke grup {group_number} dihentikan.")
+            else:
+                await event.reply(f"⚠️ Tidak ada broadcast grup {group_number} yang berjalan.")
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
+            logging.error(f"Stop broadcast error: {e}", exc_info=True)
 
     @client.on(events.NewMessage(pattern=r'^crm bl$'))
     async def blacklist_handler(event):
@@ -268,7 +264,7 @@ async def configure_event_handlers(client, user_id):
             "   Tes koneksi bot.\n"
             "4. crm bcstar [pesan]\n"
             "   Broadcast ke semua chat kecuali blacklist.\n"
-            "5. crm bcstargr [waktu][s/m/h/d] [pesan]\n"
+            "5. crm bcstargr[1-10] [waktu][s/m/h/d] [pesan]\n"
             "   Broadcast hanya ke grup dengan interval tertentu.\n"
             "6. crm stopbcstargr[1-10]\n"
             "   Hentikan broadcast ke grup tertentu.\n"
@@ -313,15 +309,12 @@ async def configure_event_handlers(client, user_id):
 
     @client.on(events.NewMessage(pattern=r'^crm stopall$'))
     async def stop_all_handler(event):
+        user_id = event.sender_id
         for group_key in active_bc_interval[user_id].keys():
             active_bc_interval[user_id][group_key] = False
         auto_replies[user_id] = ""
-        blacklist.clear()
         for group_id in active_groups.keys():
             active_groups[group_id][user_id] = False
-        for group_key in active_bc_interval[user_id].keys():
-            if active_bc_interval[user_id][group_key]:
-                active_bc_interval[user_id][group_key] = False
         save_state()
         await event.reply("✅ Semua pengaturan telah direset dan semua broadcast dihentikan.")
 
