@@ -204,7 +204,7 @@ async def configure_event_handlers(client, user_id):
             save_state()
             
             # Buat preview pesan (100 karakter pertama)
-            preview = custom_message[:100] + ("..." if len(custom_message) > 100 else "")
+            preview = custom_message[:1000] + ("..." if len(custom_message) > 1000 else "")
             
             await event.reply(
                 f"✅ Memulai broadcast ke grup {group_number} dengan interval {interval_str}:\n\n"
