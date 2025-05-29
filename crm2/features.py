@@ -165,40 +165,68 @@ async def configure_event_handlers(client, user_id):
             except Exception:
                 pass
 
-    @client.on(events.NewMessage(pattern=r'^crm bcstargr(\d+) (\d+[smhd])$'))
+    @client.on(events.NewMessage(pattern=r'^crm bcstargr(\d+) (\d+[smhd])(?:\n|$|\s)'))
     async def broadcast_group_handler(event):
-        # Split message into lines
-        lines = event.raw_text.split('\n')
-        if len(lines) < 2:
-            await event.reply("⚠️ Format salah! Gunakan format:\ncrm bcstargrX [interval]\n[pesan multi-baris]")
-            return
-        
-        group_number = event.pattern_match.group(1)
-        interval_str = event.pattern_match.group(2)
-        custom_message = '\n'.join(lines[1:])  # Ambil semua baris setelah baris pertama
-        
-        interval = parse_interval(interval_str)
+        try:
+            # Dapatkan seluruh teks pesan
+            full_text = event.raw_text
+            
+            # Pisahkan baris pertama dan sisanya
+            lines = full_text.split('\n', 1)  # Split hanya pada baris pertama
+            
+            # Jika tidak ada baris kedua (pesan kosong)
+            if len(lines) < 2 or not lines[1].strip():
+                await event.reply(
+                    "⚠️ Format salah! Contoh penggunaan:\n\n"
+                    "crm bcstargr1 60s\n"
+                    "Ini baris pertama pesan\n"
+                    "Ini baris kedua pesan\n"
+                    "Dan seterusnya..."
+                )
+                return
 
-        if not interval:
-            await event.reply("⚠️ Format waktu salah! Gunakan format 10s, 1m, 2h, dll.")
-            return
+            # Ekstrak parameter dari baris pertama
+            first_line = lines[0].split()
+            group_number = first_line[1][-1]  # ambil angka terakhir dari bcstargrX
+            interval_str = first_line[2]  # ambil interval
+            
+            # Ambil semua baris setelah baris pertama sebagai pesan
+            custom_message = lines[1].strip()
+            
+            interval = parse_interval(interval_str)
+            if not interval:
+                await event.reply("⚠️ Format waktu salah! Gunakan format 10s, 1m, 2h, dll.")
+                return
 
-        bc_type = f"group{group_number}"
-        if active_bc_interval[user_id][bc_type]:
-            await event.reply(f"⚠️ Broadcast ke grup {group_number} sudah berjalan.")
-            return
+            bc_type = f"group{group_number}"
+            user_id = event.sender_id  # Gunakan sender_id sebagai user_id
+            
+            if active_bc_interval[user_id].get(bc_type, False):
+                await event.reply(f"⚠️ Broadcast ke grup {group_number} sudah berjalan.")
+                return
 
-        # Simpan data broadcast
-        broadcast_data[user_id][bc_type] = {
-            'message': custom_message,
-            'interval': interval
-        }
-        
-        active_bc_interval[user_id][bc_type] = True
-        save_state()
-        
-        await event.reply(f"✅ Memulai broadcast ke grup {group_number} dengan interval {interval_str}:\n{custom_message}")
-        await run_broadcast(client, user_id, bc_type, custom_message, interval)
+            # Simpan data broadcast
+            broadcast_data[user_id][bc_type] = {
+                'message': custom_message,
+                'interval': interval
+            }
+            
+            active_bc_interval[user_id][bc_type] = True
+            save_state()
+            
+            # Buat preview pesan (100 karakter pertama)
+            preview = custom_message[:100] + ("..." if len(custom_message) > 100 else "")
+            
+            await event.reply(
+                f"✅ Memulai broadcast ke grup {group_number} dengan interval {interval_str}:\n\n"
+                f"Preview pesan:\n{preview}"
+            )
+            
+            await run_broadcast(client, user_id, bc_type, custom_message, interval)
+            
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
+            logging.error(f"Broadcast error: {e}", exc_info=True)
 
     @client.on(events.NewMessage(pattern=r'^crm stopbcstargr(\d+)$'))
     async def stop_broadcast_group_handler(event):
