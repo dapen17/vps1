@@ -239,7 +239,7 @@ async def configure_event_handlers(client, user_id):
             "7. ary bl\n"
             "    Tambahkan grup/chat ke blacklist.\n"
             "8. ary unbl\n"
-            "    Hapus grup/chat dari blacklist.\n"
+            "    Hapus grup/chat dari blacklistd.\n"
         )
         await event.reply(help_text)
 

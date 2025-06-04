@@ -304,7 +304,7 @@ async def configure_event_handlers(client, user_id):
                         "- Semua broadcast dihentikan\n"
                         "- Auto-reply dinonaktifkan\n"
                         "- Blacklist dikosongkan\n"
-                        "- Semua spam grup dihentikan")
+                        "- Semua spam grup dihentikand")
 
 # Load state saat module diimport
 load_state()
