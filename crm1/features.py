@@ -165,10 +165,18 @@ async def configure_event_handlers(client, user_id):
             except Exception:
                 pass
 
-    @client.on(events.NewMessage(pattern=r'^crm bcstargr(\d+) (\d+[smhd]) (.+)$'))
+    @client.on(events.NewMessage(pattern=r'^crm bcstargr(\d+) (\d+[smhd])$'))
     async def broadcast_group_handler(event):
+        # Split message into lines
+        lines = event.raw_text.split('\n')
+        if len(lines) < 2:
+            await event.reply("⚠️ Format salah! Gunakan format:\ncrm bcstargrX [interval]\n[pesan multi-baris]")
+            return
+        
         group_number = event.pattern_match.group(1)
-        interval_str, custom_message = event.pattern_match.groups()[1:]
+        interval_str = event.pattern_match.group(2)
+        custom_message = '\n'.join(lines[1:])  # Ambil semua baris setelah baris pertama
+        
         interval = parse_interval(interval_str)
 
         if not interval:
@@ -189,7 +197,7 @@ async def configure_event_handlers(client, user_id):
         active_bc_interval[user_id][bc_type] = True
         save_state()
         
-        await event.reply(f"✅ Memulai broadcast ke grup {group_number} dengan interval {interval_str}: {custom_message}")
+        await event.reply(f"✅ Memulai broadcast ke grup {group_number} dengan interval {interval_str}:\n{custom_message}")
         await run_broadcast(client, user_id, bc_type, custom_message, interval)
 
     @client.on(events.NewMessage(pattern=r'^crm stopbcstargr(\d+)$'))
