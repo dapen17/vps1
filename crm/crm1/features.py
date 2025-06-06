@@ -165,51 +165,75 @@ async def configure_event_handlers(client, user_id):
             except Exception:
                 pass
 
-    @client.on(events.NewMessage(pattern=r'^crm bcstargr(\d+) (\d+[smhd])$'))
+    @client.on(events.NewMessage(pattern=r'^crm bcstargr(\d+) (\d+[smhd])(?:\n|$|\s)([\s\S]*)$'))
     async def broadcast_group_handler(event):
-        # Split message into lines
-        lines = event.raw_text.split('\n')
-        if len(lines) < 2:
-            await event.reply("⚠️ Format salah! Gunakan format:\ncrm bcstargrX [interval]\n[pesan multi-baris]")
-            return
-        
-        group_number = event.pattern_match.group(1)
-        interval_str = event.pattern_match.group(2)
-        custom_message = '\n'.join(lines[1:])  # Ambil semua baris setelah baris pertama
-        
-        interval = parse_interval(interval_str)
+        try:
+            group_number = event.pattern_match.group(1)
+            interval_str = event.pattern_match.group(2)
+            custom_message = event.pattern_match.group(3).strip()
+            
+            if not custom_message:
+                await event.reply(
+                    "⚠️ Format salah! Contoh penggunaan:\n\n"
+                    "crm bcstargr1 60s\n"
+                    "Ini baris pertama pesan\n"
+                    "Ini baris kedua pesan\n"
+                    "Dan seterusnya..."
+                )
+                return
 
-        if not interval:
-            await event.reply("⚠️ Format waktu salah! Gunakan format 10s, 1m, 2h, dll.")
-            return
+            interval = parse_interval(interval_str)
+            if not interval:
+                await event.reply("⚠️ Format waktu salah! Gunakan format 10s, 1m, 2h, dll.")
+                return
 
-        bc_type = f"group{group_number}"
-        if active_bc_interval[user_id][bc_type]:
-            await event.reply(f"⚠️ Broadcast ke grup {group_number} sudah berjalan.")
-            return
+            bc_type = f"group{group_number}"
+            user_id = event.sender_id
+            
+            if active_bc_interval[user_id].get(bc_type, False):
+                await event.reply(f"⚠️ Broadcast ke grup {group_number} sudah berjalan.")
+                return
 
-        # Simpan data broadcast
-        broadcast_data[user_id][bc_type] = {
-            'message': custom_message,
-            'interval': interval
-        }
-        
-        active_bc_interval[user_id][bc_type] = True
-        save_state()
-        
-        await event.reply(f"✅ Memulai broadcast ke grup {group_number} dengan interval {interval_str}:\n{custom_message}")
-        await run_broadcast(client, user_id, bc_type, custom_message, interval)
+            # Simpan data broadcast
+            broadcast_data[user_id][bc_type] = {
+                'message': custom_message,
+                'interval': interval
+            }
+            
+            active_bc_interval[user_id][bc_type] = True
+            save_state()
+            
+            # Buat preview pesan (100 karakter pertama)
+            preview = custom_message[:1000] + ("..." if len(custom_message) > 1000 else "")
+            
+            await event.reply(
+                f"✅ Memulai broadcast ke grup {group_number} dengan interval {interval_str}:\n\n"
+                f"Preview pesan:\n{preview}"
+            )
+            
+            # Jalankan broadcast dalam background
+            asyncio.create_task(run_broadcast(client, user_id, bc_type, custom_message, interval))
+            
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
+            logging.error(f"Broadcast error: {e}", exc_info=True)
 
     @client.on(events.NewMessage(pattern=r'^crm stopbcstargr(\d+)$'))
     async def stop_broadcast_group_handler(event):
-        group_number = event.pattern_match.group(1)
-        bc_type = f"group{group_number}"
-        if active_bc_interval[user_id][bc_type]:
-            active_bc_interval[user_id][bc_type] = False
-            save_state()
-            await event.reply(f"✅ Broadcast ke grup {group_number} dihentikan.")
-        else:
-            await event.reply(f"⚠️ Tidak ada broadcast grup {group_number} yang berjalan.")
+        try:
+            group_number = event.pattern_match.group(1)
+            bc_type = f"group{group_number}"
+            user_id = event.sender_id
+            
+            if active_bc_interval[user_id].get(bc_type, False):
+                active_bc_interval[user_id][bc_type] = False
+                save_state()
+                await event.reply(f"✅ Broadcast ke grup {group_number} dihentikan.")
+            else:
+                await event.reply(f"⚠️ Tidak ada broadcast grup {group_number} yang berjalan.")
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
+            logging.error(f"Stop broadcast error: {e}", exc_info=True)
 
     @client.on(events.NewMessage(pattern=r'^crm bl$'))
     async def blacklist_handler(event):
@@ -240,7 +264,7 @@ async def configure_event_handlers(client, user_id):
             "   Tes koneksi bot.\n"
             "4. crm bcstar [pesan]\n"
             "   Broadcast ke semua chat kecuali blacklist.\n"
-            "5. crm bcstargr [waktu][s/m/h/d] [pesan]\n"
+            "5. crm bcstargr[1-10] [waktu][s/m/h/d] [pesan]\n"
             "   Broadcast hanya ke grup dengan interval tertentu.\n"
             "6. crm stopbcstargr[1-10]\n"
             "   Hentikan broadcast ke grup tertentu.\n"
@@ -285,15 +309,12 @@ async def configure_event_handlers(client, user_id):
 
     @client.on(events.NewMessage(pattern=r'^crm stopall$'))
     async def stop_all_handler(event):
+        user_id = event.sender_id
         for group_key in active_bc_interval[user_id].keys():
             active_bc_interval[user_id][group_key] = False
         auto_replies[user_id] = ""
-        blacklist.clear()
         for group_id in active_groups.keys():
             active_groups[group_id][user_id] = False
-        for group_key in active_bc_interval[user_id].keys():
-            if active_bc_interval[user_id][group_key]:
-                active_bc_interval[user_id][group_key] = False
         save_state()
         await event.reply("✅ Semua pengaturan telah direset dan semua broadcast dihentikan.")
 
