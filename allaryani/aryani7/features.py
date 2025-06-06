@@ -8,21 +8,57 @@ from telethon.tl.types import InputPeerUser
 from datetime import datetime
 from collections import defaultdict
 
-# Menonaktifkan logging Telethon
 logging.basicConfig(level=logging.CRITICAL)
 
-# File untuk menyimpan state
-STATE_FILE = 'bot_state.json'
+STATE_FILE = "state.json"
 
-# Menyimpan status per akun dan grup (diperbarui untuk isolasi akun)
-active_groups = defaultdict(lambda: defaultdict(lambda: defaultdict(bool)))  # {user_id: {group_id: status}}
-active_bc_interval = defaultdict(lambda: defaultdict(bool))  # {user_id: {bc_type: status}}
-broadcast_data = defaultdict(dict)  # {user_id: {bc_type: {'message': str, 'interval': int}}}
-blacklist = defaultdict(set)  # {user_id: set_of_blacklisted_chats}
-auto_replies = defaultdict(str)  # {user_id: auto_reply_message}
+# Inisialisasi variabel state dengan default
+active_groups = defaultdict(lambda: defaultdict(bool))       # {group_id: {user_id: bool}}
+active_bc_interval = defaultdict(lambda: defaultdict(bool)) # {user_id: {group_number: bool}}
+blacklist = set()
+auto_replies = defaultdict(str)                             # {user_id: reply_message}
+
+def save_state():
+    """Simpan semua state ke file JSON."""
+    data = {
+        "active_groups": {str(gid): {str(uid): status for uid, status in udict.items()} for gid, udict in active_groups.items()},
+        "active_bc_interval": {str(uid): dict(udict) for uid, udict in active_bc_interval.items()},
+        "blacklist": list(blacklist),
+        "auto_replies": dict(auto_replies),
+    }
+    with open(STATE_FILE, "w") as f:
+        json.dump(data, f)
+
+def load_state():
+    """Load state dari file JSON, jika ada."""
+    if not os.path.exists(STATE_FILE):
+        return
+    with open(STATE_FILE, "r") as f:
+        data = json.load(f)
+
+    # Load active_groups
+    for gid_str, udict in data.get("active_groups", {}).items():
+        gid = int(gid_str)
+        for uid_str, status in udict.items():
+            uid = int(uid_str)
+            active_groups[gid][uid] = status
+
+    # Load active_bc_interval
+    for uid_str, udict in data.get("active_bc_interval", {}).items():
+        uid = int(uid_str)
+        for key, status in udict.items():
+            active_bc_interval[uid][key] = status
+
+    # Load blacklist
+    for chat_id in data.get("blacklist", []):
+        blacklist.add(chat_id)
+
+    # Load auto_replies
+    for uid_str, reply in data.get("auto_replies", {}).items():
+        uid = int(uid_str)
+        auto_replies[uid] = reply
 
 def parse_interval(interval_str):
-    """Konversi format [10s, 1m, 2h, 1d] menjadi detik."""
     match = re.match(r'^(\d+)([smhd])$', interval_str)
     if not match:
         return None
@@ -31,101 +67,11 @@ def parse_interval(interval_str):
     return value * {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}[unit]
 
 def get_today_date():
-    """Mengembalikan tanggal hari ini dalam format YYYY-MM-DD."""
     return datetime.now().strftime("%Y-%m-%d")
 
-def save_state():
-    """Menyimpan state ke file"""
-    state = {
-        'active_bc_interval': {str(k): dict(v) for k, v in active_bc_interval.items()},
-        'auto_replies': dict(auto_replies),
-        'blacklist': {str(k): list(v) for k, v in blacklist.items()},
-        'active_groups': {
-            str(user_id): {
-                str(group_id): status for group_id, status in groups.items()
-            } for user_id, groups in active_groups.items()
-        },
-        'broadcast_data': {
-            str(user_id): {
-                bc_type: data for bc_type, data in user_data.items()
-            } for user_id, user_data in broadcast_data.items()
-        }
-    }
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f)
-
-def load_state():
-    """Memuat state dari file"""
-    global active_bc_interval, auto_replies, blacklist, active_groups, broadcast_data
-    
-    if not os.path.exists(STATE_FILE):
-        return
-    
-    try:
-        with open(STATE_FILE, 'r') as f:
-            state = json.load(f)
-        
-        # Convert back to defaultdict
-        active_bc_interval.clear()
-        for user_id, data in state.get('active_bc_interval', {}).items():
-            active_bc_interval[int(user_id)] = defaultdict(bool, data)
-        
-        auto_replies.clear()
-        for user_id, reply in state.get('auto_replies', {}).items():
-            auto_replies[int(user_id)] = reply
-        
-        blacklist.clear()
-        for user_id, bl in state.get('blacklist', {}).items():
-            blacklist[int(user_id)] = set(bl)
-        
-        active_groups.clear()
-        for user_id, groups in state.get('active_groups', {}).items():
-            active_groups[int(user_id)] = defaultdict(lambda: defaultdict(bool))
-            for group_id, status in groups.items():
-                active_groups[int(user_id)][int(group_id)] = status
-                
-        broadcast_data.clear()
-        for user_id, user_data in state.get('broadcast_data', {}).items():
-            broadcast_data[int(user_id)] = user_data
-            
-    except Exception as e:
-        print(f"Gagal memuat state: {e}")
-
-async def run_broadcast(client, user_id, bc_type, message, interval):
-    """Jalankan broadcast dalam background"""
-    while active_bc_interval[user_id].get(bc_type, False):
-        async for dialog in client.iter_dialogs():
-            if dialog.is_group and dialog.id not in blacklist.get(user_id, set()):
-                try:
-                    await client.send_message(dialog.id, message)
-                except Exception:
-                    pass
-        await asyncio.sleep(interval)
-
-async def restart_broadcasts(client, user_id):
-    """Restart semua broadcast yang aktif untuk user tertentu"""
-    for bc_type, is_active in active_bc_interval[user_id].items():
-        if is_active and bc_type in broadcast_data.get(user_id, {}):
-            data = broadcast_data[user_id][bc_type]
-            asyncio.create_task(run_broadcast(client, user_id, bc_type, data['message'], data['interval']))
-
 async def configure_event_handlers(client, user_id):
-    """Konfigurasi semua fitur bot untuk user_id tertentu."""
-    
-    # Restart broadcast yang aktif
-    await restart_broadcasts(client, user_id)
-    
-    # Restart auto-reply jika ada
-    if user_id in auto_replies and auto_replies[user_id]:
-        print(f"Auto-reply untuk user {user_id} diaktifkan kembali")
-    
     @client.on(events.NewMessage(pattern=r'^ary hastle (.+) (\d+[smhd])$'))
     async def hastle_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
         custom_message, interval_str = event.pattern_match.groups()
         group_id = event.chat_id
         interval = parse_interval(interval_str)
@@ -134,33 +80,28 @@ async def configure_event_handlers(client, user_id):
             await event.reply("⚠️ Format waktu salah! Gunakan format 10s, 1m, 2h, dll.")
             return
 
-        if active_groups[user_id][group_id]:
+        if active_groups[group_id][user_id]:
             await event.reply("⚠️ Spam sudah berjalan untuk akun Anda di grup ini.")
             return
 
-        active_groups[user_id][group_id] = True
+        active_groups[group_id][user_id] = True
         save_state()
         await event.reply(f"✅ Memulai spam: {custom_message} setiap {interval_str} untuk akun Anda.")
-        while active_groups[user_id][group_id]:
+        while active_groups[group_id][user_id]:
             try:
                 await client.send_message(group_id, custom_message)
                 await asyncio.sleep(interval)
             except errors.FloodWaitError as e:
                 await asyncio.sleep(e.seconds)
             except Exception:
-                active_groups[user_id][group_id] = False
+                active_groups[group_id][user_id] = False
                 save_state()
 
     @client.on(events.NewMessage(pattern=r'^ary stop$'))
     async def stop_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
         group_id = event.chat_id
-        if active_groups[user_id][group_id]:
-            active_groups[user_id][group_id] = False
+        if active_groups[group_id][user_id]:
+            active_groups[group_id][user_id] = False
             save_state()
             await event.reply("✅ Spam dihentikan untuk akun Anda di grup ini.")
         else:
@@ -168,24 +109,14 @@ async def configure_event_handlers(client, user_id):
 
     @client.on(events.NewMessage(pattern=r'^ary ping$'))
     async def ping_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
         await event.reply("🏓 Pong! Bot aktif.")
 
     @client.on(events.NewMessage(pattern=r'^ary bcstar (.+)$'))
     async def broadcast_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
         custom_message = event.pattern_match.group(1)
         await event.reply(f"✅ Memulai broadcast ke semua chat: {custom_message}")
         async for dialog in client.iter_dialogs():
-            if dialog.id in blacklist.get(user_id, set()):
+            if dialog.id in blacklist:
                 continue
             try:
                 await client.send_message(dialog.id, custom_message)
@@ -194,11 +125,6 @@ async def configure_event_handlers(client, user_id):
 
     @client.on(events.NewMessage(pattern=r'^ary bcstargr(\d+) (\d+[smhd]) (.+)$'))
     async def broadcast_group_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
         group_number = event.pattern_match.group(1)
         interval_str, custom_message = event.pattern_match.groups()[1:]
         interval = parse_interval(interval_str)
@@ -207,36 +133,32 @@ async def configure_event_handlers(client, user_id):
             await event.reply("⚠️ Format waktu salah! Gunakan format 10s, 1m, 2h, dll.")
             return
 
-        bc_type = f"group{group_number}"
-        if active_bc_interval[user_id].get(bc_type, False):
+        key = f"group{group_number}"
+        # Gunakan user_id yang khusus untuk client ini saja
+        if active_bc_interval[user_id][key]:
             await event.reply(f"⚠️ Broadcast ke grup {group_number} sudah berjalan.")
             return
 
-        # Simpan data broadcast
-        if user_id not in broadcast_data:
-            broadcast_data[user_id] = {}
-        broadcast_data[user_id][bc_type] = {
-            'message': custom_message,
-            'interval': interval
-        }
-        
-        active_bc_interval[user_id][bc_type] = True
+        active_bc_interval[user_id][key] = True
         save_state()
-        
         await event.reply(f"✅ Memulai broadcast ke grup {group_number} dengan interval {interval_str}: {custom_message}")
-        asyncio.create_task(run_broadcast(client, user_id, bc_type, custom_message, interval))
+
+        while active_bc_interval[user_id][key]:
+            async for dialog in client.iter_dialogs():
+                if dialog.is_group and dialog.id not in blacklist:
+                    try:
+                        await client.send_message(dialog.id, custom_message)
+                    except Exception:
+                        pass
+            await asyncio.sleep(interval)
+
 
     @client.on(events.NewMessage(pattern=r'^ary stopbcstargr(\d+)$'))
     async def stop_broadcast_group_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
         group_number = event.pattern_match.group(1)
-        bc_type = f"group{group_number}"
-        if active_bc_interval[user_id].get(bc_type, False):
-            active_bc_interval[user_id][bc_type] = False
+        key = f"group{group_number}"
+        if active_bc_interval[user_id][key]:
+            active_bc_interval[user_id][key] = False
             save_state()
             await event.reply(f"✅ Broadcast ke grup {group_number} dihentikan.")
         else:
@@ -244,26 +166,16 @@ async def configure_event_handlers(client, user_id):
 
     @client.on(events.NewMessage(pattern=r'^ary bl$'))
     async def blacklist_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
         chat_id = event.chat_id
-        blacklist[user_id].add(chat_id)
+        blacklist.add(chat_id)
         save_state()
         await event.reply("✅ Grup ini telah ditambahkan ke blacklist.")
 
     @client.on(events.NewMessage(pattern=r'^ary unbl$'))
     async def unblacklist_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
         chat_id = event.chat_id
-        if chat_id in blacklist.get(user_id, set()):
-            blacklist[user_id].remove(chat_id)
+        if chat_id in blacklist:
+            blacklist.remove(chat_id)
             save_state()
             await event.reply("✅ Grup ini telah dihapus dari blacklist.")
         else:
@@ -271,11 +183,6 @@ async def configure_event_handlers(client, user_id):
 
     @client.on(events.NewMessage(pattern=r'^ary help$'))
     async def help_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
         help_text = (
             "📋 **Daftar Perintah yang Tersedia:**\n\n"
             "1. ary hastle [pesan] [waktu][s/m/h/d]\n"
@@ -291,86 +198,44 @@ async def configure_event_handlers(client, user_id):
             "6. ary stopbcstargr[1-10]\n"
             "   Hentikan broadcast ke grup tertentu.\n"
             "7. ary bl\n"
-            "    Tambahkan grup/chat ke blacklist.\n"
+            "   Tambahkan grup/chat ke blacklist.\n"
             "8. ary unbl\n"
-            "    Hapus grup/chat dari blacklist.\n"
-            "9. ary setreply\n"
-            "    Set auto-reply untuk pesan private\n"
-            "10. ary stopall\n"
-            "    Hentikan semua fitur bot"
+            "   Hapus grup/chat dari blacklist.\n"
         )
         await event.reply(help_text)
 
-    @client.on(events.NewMessage(pattern=r'^ary setreply'))
+    @client.on(events.NewMessage(pattern=r'^ary setreply (.+)$'))
     async def set_auto_reply(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
-        message_lines = event.raw_text.split('\n', 1)
-        if len(message_lines) < 2:
-            await event.reply("⚠️ Harap isi auto-reply setelah baris pertama.\nContoh:\nary setreply\nHalo ini balasan otomatis.")
-            return
-
-        reply_message = message_lines[1]
+        reply_message = event.pattern_match.group(1)
         auto_replies[user_id] = reply_message
         save_state()
-        await event.reply("✅ Auto-reply berhasil diatur.")
+        await event.reply(f"\u2705 Auto-reply diatur: {reply_message}")
 
     @client.on(events.NewMessage(incoming=True))
     async def auto_reply_handler(event):
-        if event.is_private:
-            me = await client.get_me()
-            current_user_id = me.id
-            if current_user_id != user_id:
-                return
-                
-            # Periksa apakah auto-reply aktif dan pesan tidak berasal dari bot sendiri
-            if user_id in auto_replies and auto_replies[user_id] and not event.out:
-                try:
-                    sender = await event.get_sender()
-                    peer = InputPeerUser(sender.id, sender.access_hash)
-                    await client.send_message(peer, auto_replies[user_id])
-                    await client.send_read_acknowledge(peer)
-                except errors.rpcerrorlist.UsernameNotOccupiedError:
-                    pass
-                except errors.rpcerrorlist.FloodWaitError:
-                    pass
-                except Exception:
-                    pass
+        if event.is_private and user_id in auto_replies and auto_replies[user_id]:
+            try:
+                sender = await event.get_sender()
+                peer = InputPeerUser(sender.id, sender.access_hash)
+                await client.send_message(peer, auto_replies[user_id])
+                await client.send_read_acknowledge(peer)
+            except errors.rpcerrorlist.UsernameNotOccupiedError:
+                pass
+            except errors.rpcerrorlist.FloodWaitError:
+                pass
+            except Exception:
+                pass
 
     @client.on(events.NewMessage(pattern=r'^ary stopall$'))
     async def stop_all_handler(event):
-        me = await client.get_me()
-        current_user_id = me.id
-        if current_user_id != user_id:
-            return
-            
-        # Stop semua broadcast grup
-        active_bc_interval[user_id].clear()
-        
-        # Hapus auto-reply
+        for group_key in list(active_bc_interval[user_id].keys()):
+            active_bc_interval[user_id][group_key] = False
         auto_replies[user_id] = ""
-        
-        # Kosongkan blacklist
-        blacklist[user_id].clear()
-        
-        # Stop semua spam grup
-        if user_id in active_groups:
-            for group_id in list(active_groups[user_id].keys()):
-                active_groups[user_id][group_id] = False
-        
-        # Hapus data broadcast
-        if user_id in broadcast_data:
-            broadcast_data[user_id].clear()
-        
+        blacklist.clear()
+        for group_id in list(active_groups.keys()):
+            active_groups[group_id][user_id] = False
         save_state()
-        await event.reply("✅ SEMUA FITUR TELAH DIHENTIKAN DAN DIHAPUS:\n"
-                        "- Semua broadcast dihentikan\n"
-                        "- Auto-reply dinonaktifkan\n"
-                        "- Blacklist dikosongkan\n"
-                        "- Semua spam grup dihentikan")
+        await event.reply("\u2705 Semua pengaturan telah direset dan semua broadcast dihentikan.")
 
-# Load state saat module diimport
+# Jangan lupa panggil load_state() sebelum event handler aktif agar state termuat.
 load_state()
